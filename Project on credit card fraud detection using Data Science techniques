@@ -1,0 +1,648 @@
+# CREDIT CARD FRAUD DETECTION
+
+# import 'Pandas' 
+import pandas as pd 
+
+# import 'Numpy' 
+import numpy as np
+
+# import subpackage of Matplotlib
+import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
+
+# import 'Seaborn' 
+import seaborn as sns
+
+# to suppress warnings 
+from warnings import filterwarnings
+filterwarnings('ignore')
+
+# display all columns of the dataframe
+pd.options.display.max_columns = None
+
+# display all rows of the dataframe
+pd.options.display.max_rows = None
+
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+ 
+# to display the float values upto 6 decimal places     
+pd.options.display.float_format = '{:.6f}'.format
+
+# import train-test split 
+from sklearn.model_selection import train_test_split
+
+# import various functions from statsmodels
+import statsmodels
+import statsmodels.api as sm
+
+# import StandardScaler to perform scaling
+from sklearn.preprocessing import StandardScaler 
+
+# import various functions from sklearn 
+from sklearn import metrics
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report
+from sklearn.metrics import cohen_kappa_score
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import roc_curve
+from sklearn.metrics import accuracy_score
+
+# import function to perform feature selection
+from sklearn.feature_selection import RFE
+
+from imblearn.over_sampling import SMOTE
+from imblearn.over_sampling import BorderlineSMOTE
+from imblearn.under_sampling import RandomUnderSampler
+
+## READING DATA
+
+train = pd.read_csv("/Users/nikhil/DataScience PG/Great Learning/capstone project/Fraud dataset/fraudTrain.csv")
+
+train.head()
+
+train.info()
+
+train.shape
+
+train.dtypes
+
+# checking missing values
+
+train.isnull().sum()
+
+plt.figure(figsize = (8,5))
+LABELS = ["Normal","Fraud" ]
+cases_count = pd.value_counts(train["is_fraud"], sort = True)
+cases_count.plot(kind = "bar")
+plt.title = ("Distribution")
+plt.xlabel("Cases")
+plt.ylabel("count")
+plt.xticks(range(2),LABELS)
+plt.show()
+
+
+100*train.is_fraud.value_counts(normalize=True)
+
+# checking duplicate records
+
+train.duplicated().sum()
+
+# trans_date_trans_time to pandas datetime
+
+train['trans_date_trans_time'] = pd.to_datetime(train['trans_date_trans_time'])
+train['trans_date_trans_time'].head()
+
+# dob to pandas datetime
+
+train['dob'] = pd.to_datetime(train['dob'])
+train['dob'].head()
+
+# checking cardinality of categorical features
+
+for col in train.columns:
+    if train[col].dtype == 'object':  # Only analyze object columns (categorical variables)
+        num_categories = len(train[col].unique())
+        print(f"{col} has {num_categories} categories")
+        print()  
+
+train.drop(['Unnamed: 0','street','merchant','zip','first','last','trans_num','job'], axis =1, inplace = True)
+
+train.head()
+
+train.columns
+
+train.info()
+
+# transforming feature to datetime and deriving new features
+
+train['trans_hour'] = train['trans_date_trans_time'].dt.hour
+train['trans_month'] = train['trans_date_trans_time'].dt.month
+train['trans_dayofweek'] = train['trans_date_trans_time'].dt.day_name()
+
+
+train.head()
+
+train.columns
+
+# deriving new feature from dob
+
+train['cust_age'] = (train['trans_date_trans_time'] - train['dob']).astype('timedelta64[Y]')
+train['cust_age'].head()
+
+train.drop(['trans_date_trans_time','dob','city'], axis = 1, inplace = True)
+
+train.info()
+
+# getting stats of credit card transactions
+
+train.groupby(['cc_num'])['cc_num'].count().sort_values(ascending = False).describe().astype(int)
+
+# deriving time delay between previous and current transaction
+
+train.sort_values(by = ['cc_num','unix_time'], ascending = True, inplace = True)
+train['last_unix_time'] = train.groupby(by = ['cc_num'])['unix_time'].shift(1)
+train['last_unix_time'].fillna(train['unix_time'] - 86400, inplace = True)
+train['trans_diff'] = (train['unix_time'] - train['last_unix_time'])//60
+
+train.head()
+
+train.drop(['last_unix_time','unix_time'], axis = 1, inplace = True)
+
+train.info()
+
+train.reset_index(drop=True, inplace = True)
+
+train.head()
+
+# Creating a pie plot of the target variable distribution
+
+plt.figure(figsize = [7,7])
+target_counts = train['is_fraud'].value_counts()
+plt.pie(target_counts, autopct='%1.1f%%',labels = ['non_fraud','fraud'])
+plt.show()
+
+
+# amount vs fraud cases
+
+plt.figure(figsize=(20,5))
+A_vs_F = sns.histplot(x='amt',data=train[train.amt < 1500],hue='is_fraud'
+                      ,stat='percent',multiple='dodge',common_norm=False,bins=25)
+A_vs_F.set_ylabel("Percentage")
+A_vs_F.set_xlabel("Transaction Amount")
+plt.legend(title='Type', labels=['Fraud', 'Not Fraud'])
+
+# gender vs fraud cases
+
+ax=sns.histplot(x='gender',data=train, hue='is_fraud',stat='percent',multiple='dodge',common_norm=False)
+ax.set_ylabel('Percentage')
+ax.set_xlabel('Credit Card Holder Gender')
+plt.legend(title='Type', labels=['Fraud', 'Not Fraud'])
+
+# age vs fraud cases
+
+fraud = train.groupby('is_fraud')
+not_fraud = fraud.get_group(0)
+fraud = fraud.get_group(1)
+
+# Calculating the min, max, and mean age for fraud and not fraud
+min_age_fraud = fraud['cust_age'].min()
+max_age_fraud = fraud['cust_age'].max()
+mean_age_fraud = fraud['cust_age'].mean()
+
+min_age_not_fraud = not_fraud['cust_age'].min()
+max_age_not_fraud = not_fraud['cust_age'].max()
+mean_age_not_fraud = not_fraud['cust_age'].mean()
+
+print("Age statistics for fraud transactions:")
+print(f"Minimum age: {min_age_fraud}")
+print(f"Maximum age: {max_age_fraud}")
+print(f"Average age: {mean_age_fraud}")
+
+print("\nAge statistics for non-fraud transactions:")
+print(f"Minimum age: {min_age_not_fraud}")
+print(f"Maximum age: {max_age_not_fraud}")
+print(f"Average age: {mean_age_not_fraud}")
+
+
+
+# creating lineplot to visualize the age of cardholders
+
+plt.figure(figsize = [20,7])
+
+trans_dist = train.groupby('is_fraud')['cust_age'].value_counts(normalize = True).rename('distribution').reset_index()
+sns.lineplot(data = trans_dist, x = 'cust_age',
+             y = 'distribution', hue = 'is_fraud')
+
+plt.xticks(np.arange(10,100,5));
+
+train.info()
+
+# category of itmes
+
+plt.figure(figsize=(20,5))
+
+tans_cat = sns.histplot(x='category',data=train ,hue='is_fraud'
+                      ,stat='percent',multiple='dodge',common_norm=False,bins=25)
+tans_cat.set_ylabel("Value")
+plt.legend(title='Type', labels=['Fraud', 'Not Fraud'])
+
+# state vs fraud
+
+plt.figure(figsize=(25,8))
+
+tans_state = sns.histplot(x='state',data=train ,hue='is_fraud'
+                      ,stat='percent',multiple='dodge',common_norm=False,bins=25)
+tans_state.set_ylabel("Value")
+plt.legend(title='Type', labels=['Fraud', 'Not Fraud'])
+
+# distribution of amount vs fraud nd non fraud cases
+
+plt.figure(figsize=(8,5))
+sns.boxplot(x='is_fraud', y='amt', data=train)
+plt.show()
+
+train.info()
+
+# transaction done by hours
+
+plt.figure(figsize = [12,7])
+
+trans_hour_distribution = train.groupby('is_fraud')['trans_hour'].value_counts(normalize = True).rename('distribution').reset_index()
+
+sns.lineplot(data = trans_hour_distribution, x = 'trans_hour', y = 'distribution', hue = 'is_fraud')
+plt.xticks(np.arange(0,24,1))
+
+plt.show()
+
+
+# transaction delay
+
+plt.figure(figsize=(8,5))
+sns.boxplot(x='is_fraud', y='trans_diff', data=train)
+plt.show()
+
+# Days of transaction
+
+plt.figure(figsize=(25,8))
+
+tans_day = sns.histplot(x='trans_dayofweek',data=train ,hue='is_fraud'
+                      ,stat='percent',multiple='dodge',common_norm=False,bins=25)
+tans_day.set_ylabel("Value")
+plt.legend(title='Type', labels=['Fraud', 'Not Fraud'])
+
+# month of transaction
+
+plt.figure(figsize=(25,8))
+
+tans_month = sns.histplot(x='trans_month',data=train ,hue='is_fraud'
+                      ,stat='percent',multiple='dodge',common_norm=False,bins=25)
+tans_month.set_ylabel("Value")
+plt.legend(title='Type', labels=['Fraud', 'Not Fraud'])
+
+pearsoncorr = train.corr(method='pearson')
+pearsoncorr
+
+train.corrwith(train["is_fraud"])
+
+# Correlation matrix of features
+
+plt.figure(figsize=(15,8))
+sns.heatmap(pearsoncorr, 
+            xticklabels=pearsoncorr.columns,
+            yticklabels=pearsoncorr.columns,
+            cmap='RdBu_r',
+            annot=True,
+            linewidth=0.5)
+
+train.info()
+
+# outliers detection
+
+sns.boxplot(x=train['amt'])
+plt.show()
+
+sns.boxplot(x=train['lat'])
+plt.show()
+
+sns.boxplot(x=train['city_pop'])
+plt.show()
+
+sns.boxplot(x=train['merch_lat'])
+plt.show()
+
+sns.boxplot(x=train['merch_long'])
+plt.show()
+
+sns.boxplot(x=train['trans_hour'])
+plt.show()
+
+sns.boxplot(x=train['trans_month'])
+plt.show()
+
+
+sns.boxplot(x=train['cust_age'])
+plt.show()
+
+sns.boxplot(x=train['trans_diff'])
+plt.show()
+
+train.drop(['cc_num'], axis = 1, inplace = True)
+
+train.info()
+
+train.head()
+
+col = train[['amt','merch_lat','merch_long','lat','long','city_pop','trans_diff']]
+
+# Calculate the skewness of the column
+skewness = col.skew()
+
+# Print the skewness value
+print(skewness)
+
+# checking cardinality of categorical features
+
+for col in train.columns:
+    if train[col].dtype == 'object':
+        num_categories = len(train[col].unique())
+        print(f"{col} has {num_categories} categories")
+        print() 
+
+# splitting dataset into train and test
+
+y = train['is_fraud']
+
+X = train.drop('is_fraud', axis = 1)
+
+# Split the data into a training set and a testing set
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Print the shape of the training and testing sets
+print("Training set shape:", X_train.shape, y_train.shape)
+print("Testing set shape:", X_test.shape, y_test.shape)
+
+# Encoding the categorical features into numerical
+
+from feature_engine.encoding import OneHotEncoder
+
+var = ['category','gender']
+
+encoder = OneHotEncoder(variables = var, drop_last = True)
+
+encoder.fit(X_train)
+
+# transforming the data
+X_train = encoder.transform(X_train)
+X_test = encoder.transform(X_test)
+
+from feature_engine.encoding import MeanEncoder
+
+variables = ['state','trans_dayofweek']
+
+mean_encod = MeanEncoder(variables = variables)
+
+mean_encod.fit(X_train, y_train)
+
+X_train = mean_encod.transform(X_train)
+
+X_test = mean_encod.transform(X_test)
+
+X_train.dtypes
+
+# Scaling the data
+
+from sklearn.preprocessing import MinMaxScaler
+
+scaler = MinMaxScaler()
+
+scaler.fit(X_train)
+
+X_train = pd.DataFrame(data = scaler.transform(X_train), columns = X_train.columns)
+
+X_test = pd.DataFrame(data = scaler.transform(X_test), columns = X_test.columns)
+
+# Checking Imbalance in the training data
+
+print(y_train.value_counts(normalize = True)*100)
+
+# Logistics regression on imbalanced data
+
+model_1=LogisticRegression()
+model_1.fit(X_train,y_train)
+pred = model_1.predict(X_train)
+predicted = model_1.predict(X_test)
+
+print("Train Result:\n================================================")
+print(f"Accuracy Score: {accuracy_score(y_train, pred) * 100:.2f}%")
+print("_______________________________________________")
+print(f"CLASSIFICATION REPORT:\n {classification_report(y_train, pred)}")
+print("_______________________________________________")
+print(f"Confusion Matrix: \n {confusion_matrix(y_train, pred)}\n")
+ 
+    
+    
+print("Test Result:\n================================================")        
+print(f"Accuracy Score: {accuracy_score(y_test, predicted) * 100:.2f}%")
+print("_______________________________________________")
+print(f"CLASSIFICATION REPORT:\n{classification_report(y_test, predicted)}")
+print("_______________________________________________")
+print(f"Confusion Matrix: \n {confusion_matrix(y_test, predicted)}\n")
+
+# Random Forrest on imbalanced data
+
+from sklearn.ensemble import RandomForestClassifier
+
+model_2 = RandomForestClassifier(random_state=5)
+model_2.fit(X_train,y_train)
+pred = model_2.predict(X_train)
+predicted = model_2.predict(X_test)
+
+
+print("Train Result:\n================================================")
+print(f"Accuracy Score: {accuracy_score(y_train, pred) * 100:.2f}%")
+print("_______________________________________________")
+print(f"CLASSIFICATION REPORT:\n{classification_report(y_train, pred)}")
+print("_______________________________________________")
+print(f"Confusion Matrix: \n {confusion_matrix(y_train, pred)}\n")
+ 
+    
+    
+print("Test Result:\n================================================")        
+print(f"Accuracy Score: {accuracy_score(y_test, predicted) * 100:.2f}%")
+print("_______________________________________________")
+print(f"CLASSIFICATION REPORT:\n{classification_report(y_test, predicted)}")
+print("_______________________________________________")
+print(f"Confusion Matrix: \n {confusion_matrix(y_test, predicted)}\n")
+
+# desision tree on imbalanced data
+
+from sklearn.tree import DecisionTreeClassifier
+
+model_3 = DecisionTreeClassifier(random_state=42)
+model_3.fit(X_train, y_train)
+pred = model_3.predict(X_train)
+predicted = model_3.predict(X_test)
+
+
+print("Train Result:\n================================================")
+print(f"Accuracy Score: {accuracy_score(y_train, pred) * 100:.2f}%")
+print("_______________________________________________")
+print(f"CLASSIFICATION REPORT:\n{classification_report(y_train, pred)}")
+print("_______________________________________________")
+print(f"Confusion Matrix: \n {confusion_matrix(y_train, pred)}\n")
+ 
+    
+    
+print("Test Result:\n================================================")        
+print(f"Accuracy Score: {accuracy_score(y_test, predicted) * 100:.2f}%")
+print("_______________________________________________")
+print(f"CLASSIFICATION REPORT:\n{classification_report(y_test, predicted)}")
+print("_______________________________________________")
+print(f"Confusion Matrix: \n {confusion_matrix(y_test, predicted)}\n")
+
+
+
+
+
+# Using SMOTE to balance data
+
+method = SMOTE()
+
+X_resampled, y_resampled = method.fit_resample(X_train, y_train)
+
+# Data is balanced
+
+print(y_resampled.value_counts(normalize=True)*100)
+
+# Logistic Regression
+
+balmod_1=LogisticRegression()
+balmod_1.fit(X_resampled,y_resampled)
+pred = balmod_1.predict(X_resampled)
+predicted = balmod_1.predict(X_test)
+
+print("Train Result:\n================================================")
+print(f"Accuracy Score: {accuracy_score(y_resampled, pred) * 100:.2f}%")
+print("_______________________________________________")
+print(f"CLASSIFICATION REPORT:\n {classification_report(y_resampled, pred)}")
+print("_______________________________________________")
+print(f"Confusion Matrix: \n {confusion_matrix(y_resampled, pred)}\n")
+ 
+    
+    
+print("Test Result:\n================================================")        
+print(f"Accuracy Score: {accuracy_score(y_test, predicted) * 100:.2f}%")
+print("_______________________________________________")
+print(f"CLASSIFICATION REPORT:\n{classification_report(y_test, predicted)}")
+print("_______________________________________________")
+print(f"Confusion Matrix: \n {confusion_matrix(y_test, predicted)}\n")
+
+# Random Forrest
+
+from sklearn.ensemble import RandomForestClassifier
+
+balmod_2 = RandomForestClassifier(random_state=5)
+balmod_2.fit(X_resampled,y_resampled)
+pred = balmod_2.predict(X_resampled)
+predicted = balmod_2.predict(X_test)
+
+
+print("Train Result:\n================================================")
+print(f"Accuracy Score: {accuracy_score(y_resampled, pred) * 100:.2f}%")
+print("_______________________________________________")
+print(f"CLASSIFICATION REPORT:\n{classification_report(y_resampled, pred)}")
+print("_______________________________________________")
+print(f"Confusion Matrix: \n {confusion_matrix(y_resampled, pred)}\n")
+ 
+    
+    
+print("Test Result:\n================================================")        
+print(f"Accuracy Score: {accuracy_score(y_test, predicted) * 100:.2f}%")
+print("_______________________________________________")
+print(f"CLASSIFICATION REPORT:\n{classification_report(y_test, predicted)}")
+print("_______________________________________________")
+print(f"Confusion Matrix: \n {confusion_matrix(y_test, predicted)}\n")
+
+# Decision tree
+
+from sklearn.tree import DecisionTreeClassifier
+
+balmod_3 = DecisionTreeClassifier(random_state=42)
+balmod_3.fit(X_resampled, y_resampled)
+pred = balmod_3.predict(X_resampled)
+predicted = balmod_3.predict(X_test)
+
+
+print("Train Result:\n================================================")
+print(f"Accuracy Score: {accuracy_score(y_resampled, pred) * 100:.2f}%")
+print("_______________________________________________")
+print(f"CLASSIFICATION REPORT:\n{classification_report(y_resampled, pred)}")
+print("_______________________________________________")
+print(f"Confusion Matrix: \n {confusion_matrix(y_resampled, pred)}\n")
+ 
+    
+    
+print("Test Result:\n================================================")        
+print(f"Accuracy Score: {accuracy_score(y_test, predicted) * 100:.2f}%")
+print("_______________________________________________")
+print(f"CLASSIFICATION REPORT:\n{classification_report(y_test, predicted)}")
+print("_______________________________________________")
+print(f"Confusion Matrix: \n {confusion_matrix(y_test, predicted)}\n")
+
+tree_clf = DecisionTreeClassifier(**best_params)
+tree_clf.fit(X_resampled, y_resampled)
+pred = tree_clf.predict(X_resampled)
+predicted = tree_clf.predict(X_test)
+
+
+print("Train Result:\n================================================")
+print(f"Accuracy Score: {accuracy_score(y_resampled, pred) * 100:.2f}%")
+print("_______________________________________________")
+print(f"CLASSIFICATION REPORT:\n {classification_report(y_resampled, pred)}")
+print("_______________________________________________")
+print(f"Confusion Matrix: \n {confusion_matrix(y_resampled, pred)}\n")
+ 
+    
+    
+print("Test Result:\n================================================")        
+print(f"Accuracy Score: {accuracy_score(y_test, predicted) * 100:.2f}%")
+print("_______________________________________________")
+print(f"CLASSIFICATION REPORT:\n{classification_report(y_test, predicted)}")
+print("_______________________________________________")
+print(f"Confusion Matrix: \n {confusion_matrix(y_test, predicted)}\n")
+
+# Random forrest hyperparameter tuning
+
+# Number of trees in random forest
+n_estimators = [int(x) for x in np.linspace(start = 50, stop = 200, num = 4)]
+# Number of features to consider at every split
+max_features = ['auto', 'sqrt']
+# Maximum number of levels in tree
+max_depth = [int(x) for x in np.linspace(10, 50, num = 5)]
+max_depth.append(None)
+# Minimum number of samples required to split a node
+min_samples_split = [2, 5, 10]
+# Minimum number of samples required at each leaf node
+min_samples_leaf = [1, 2, 4]
+
+# Create the random grid
+grid = {'n_estimators': n_estimators,
+               'max_features': max_features,
+               'max_depth': max_depth,
+               'min_samples_split': min_samples_split,
+               'min_samples_leaf': min_samples_leaf
+              }
+
+print(grid)
+
+# Fitting the model
+
+best_grid = RandomForestClassifier(max_features = 'sqrt', n_estimators=200, random_state=42)
+
+
+model = best_grid.fit(X_resampled,y_resampled)
+
+pred = model.predict(X_resampled)
+predicted = model.predict(X_test)
+
+
+print("Train Result:\n================================================")
+print(f"Accuracy Score: {accuracy_score(y_resampled, pred) * 100:.2f}%")
+print("_______________________________________________")
+print(f"CLASSIFICATION REPORT:\n {classification_report(y_resampled, pred)}")
+print("_______________________________________________")
+print(f"Confusion Matrix: \n {confusion_matrix(y_resampled, pred)}\n")
+ 
+    
+    
+print("Test Result:\n================================================")        
+print(f"Accuracy Score: {accuracy_score(y_test, predicted) * 100:.2f}%")
+print("_______________________________________________")
+print(f"CLASSIFICATION REPORT:\n{classification_report(y_test, predicted)}")
+print("_______________________________________________")
+print(f"Confusion Matrix: \n {confusion_matrix(y_test, predicted)}\n")
+
+
+
+
+
